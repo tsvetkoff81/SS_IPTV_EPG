@@ -1,0 +1,13 @@
+#EXTM3U x-tvg-url="https://tsvetkoff81.github.io/SS_IPTV_EPG/epg.xml"
+#EXTINF:0 tvg-name="BCU Action HD" tvg-id="Xbcu-action" group-title="BCU EPG TEST",BCU Action HD NAME TEST
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:0 tvg-name="Xbcu-action" tvg-id="Xbcu-action" group-title="BCU EPG TEST",BCU Action HD ID TEST
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:0 tvg-name="BCU Comedy HD" tvg-id="Xbcu-comedy" group-title="BCU EPG TEST",BCU Comedy HD NAME TEST
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:0 tvg-name="Xbcu-comedy" tvg-id="Xbcu-comedy" group-title="BCU EPG TEST",BCU Comedy HD ID TEST
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:0 tvg-name="BCU Cinema HD" tvg-id="Xbcu-cinema" group-title="BCU EPG TEST",BCU Cinema HD NAME TEST
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:0 tvg-name="Xbcu-cinema" tvg-id="Xbcu-cinema" group-title="BCU EPG TEST",BCU Cinema HD ID TEST
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
