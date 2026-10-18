@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import shutil
 import zlib
 from datetime import datetime, timedelta, time, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from lxml import etree
 
 ROOT = Path(__file__).resolve().parent
-XMLTV_URL = "https://bobor.pm/epg/epg-lite.xml"
+XMLTV_URLS = (
+    "https://bobor.pm/epg/epg-lite.xml",
+    "https://bobor.pm/epg/epg-lite.xml.gz",
+    "https://bobor.pm/epg/epg.xml",
+    "https://bobor.pm/epg/epg.xml.gz",
+)
 MAX_XML_BYTES = 4_500_000
 MOSCOW = timezone(timedelta(hours=3))
 OUTPUT = ROOT / "site" / "epg.xml"
@@ -61,11 +68,29 @@ def main() -> None:
     temp = ROOT / "_full_xmltv_download.tmp"
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     try:
-        request = Request(XMLTV_URL, headers={"User-Agent": "Mozilla/5.0 (SS-IPTV-EPG/1.0)"})
-        with urlopen(request, timeout=180) as resp, temp.open("wb") as target:
-            shutil.copyfileobj(resp, target)
-        if temp.stat().st_size < 100_000:
-            raise ValueError("Downloaded XMLTV seems incomplete")
+        downloaded = False
+        for url in XMLTV_URLS:
+            request = Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
+                "Accept": "application/xml,text/xml,*/*",
+            })
+            try:
+                print(f"Trying {url}", flush=True)
+                with urlopen(request, timeout=25) as resp, temp.open("wb") as target:
+                    if url.endswith(".gz") or resp.headers.get("Content-Type", "").startswith("application/gzip"):
+                        with gzip.GzipFile(fileobj=resp) as raw_xml:
+                            shutil.copyfileobj(raw_xml, target)
+                    else:
+                        shutil.copyfileobj(resp, target)
+                if temp.stat().st_size < 100_000:
+                    raise ValueError("Downloaded XMLTV seems incomplete")
+                downloaded = True
+                print(f"Downloaded {temp.stat().st_size} bytes", flush=True)
+                break
+            except (HTTPError, URLError, OSError, ValueError, EOFError) as error:
+                print(f"EPG source failed: {url}: {type(error).__name__}: {error}", flush=True)
+        if not downloaded:
+            raise RuntimeError("All 4 official XMLTV sources are blocked or unavailable from GitHub Actions")
         now = datetime.now(MOSCOW)
         for hours in (48, 36, 24, 18, 12, 6):
             xml, channels, programmes = build_xml(temp, channel_ids, now, hours)
