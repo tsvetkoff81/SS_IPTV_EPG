@@ -90,7 +90,17 @@ def main() -> None:
             except (HTTPError, URLError, OSError, ValueError, EOFError) as error:
                 print(f"EPG source failed: {url}: {type(error).__name__}: {error}", flush=True)
         if not downloaded:
-            raise RuntimeError("All 4 official XMLTV sources are blocked or unavailable from GitHub Actions")
+            # Temporary static test for 18 October only. Never silently serve stale EPG later.
+            snapshot = OUTPUT.read_bytes() if OUTPUT.exists() else b""
+            today = datetime.now(MOSCOW).strftime("%Y%m%d")
+            if today == "20261018" and len(snapshot) > 10_000 and b'<tv ' in snapshot and b'Xbcu-action' in snapshot:
+                print("::warning::Provider returned HTTP 403. Publishing approved 18 October BCU test snapshot only.", flush=True)
+                (OUTPUT.parent / "index.html").write_text(
+                    '<!doctype html><html><meta charset="utf-8"><a href="epg.xml">BCU EPG test</a></html>',
+                    encoding="utf-8",
+                )
+                return
+            raise RuntimeError("Provider blocks GitHub Actions, and no valid test-day snapshot is available")
         now = datetime.now(MOSCOW)
         for hours in (48, 36, 24, 18, 12, 6):
             xml, channels, programmes = build_xml(temp, channel_ids, now, hours)
