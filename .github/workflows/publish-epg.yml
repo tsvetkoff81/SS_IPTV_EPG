@@ -8,6 +8,7 @@ on:
       - 'input/epg-lite.xml.gz'
       - 'build_epg.py'
       - '.github/workflows/publish-epg.yml'
+      - 'site/bcu-epg-test.m3u'
   # No schedule: upstream blocks programmatic downloads (Cloudflare).
 
 permissions:
