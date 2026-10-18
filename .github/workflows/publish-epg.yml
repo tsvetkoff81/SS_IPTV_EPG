@@ -6,6 +6,8 @@ on:
   push:
     paths:
       - 'input/epg-lite.xml.gz'
+      - 'build_epg.py'
+      - '.github/workflows/publish-epg.yml'
   # No schedule: upstream blocks programmatic downloads (Cloudflare).
 
 permissions:
