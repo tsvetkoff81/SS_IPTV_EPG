@@ -1,13 +1,12 @@
-# Temporary same-day BCU EPG HTTPS test; provider direct URL blocked on GitHub runners.
+# Refresh published EPG after user uploads a new XMLTV gzip snapshot.
 name: Publish SS IPTV EPG
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/publish-epg.yml'
-  # Recurring schedule temporarily disabled: upstream blocks GitHub runners (HTTP 403).
-  # Re-enable after replacing the update method.
+      - 'input/epg-lite.xml.gz'
+  # No schedule: upstream blocks programmatic downloads (Cloudflare).
 
 permissions:
   contents: read
@@ -28,7 +27,7 @@ jobs:
           python-version: "3.12"
       - name: Install XML parser
         run: python -m pip install "lxml>=5,<7"
-      - name: Build today's selected EPG
+      - name: Build filtered EPG from uploaded browser snapshot
         run: python build_epg.py
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
