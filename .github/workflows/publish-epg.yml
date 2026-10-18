@@ -2,6 +2,9 @@ name: Publish SS IPTV EPG
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-epg.yml'
   schedule:
     # 05:15 and 17:15, UTC+03 (Moscow / Turkey)
     - cron: "15 2,14 * * *"
