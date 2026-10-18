@@ -1,3 +1,4 @@
+# Temporary same-day BCU EPG HTTPS test; provider direct URL blocked on GitHub runners.
 name: Publish SS IPTV EPG
 
 on:
