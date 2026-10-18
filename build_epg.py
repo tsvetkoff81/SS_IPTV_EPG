@@ -1,121 +1,108 @@
 #!/usr/bin/env python3
-"""Build compact XMLTV from public channel IDs; no M3U credentials or stream URLs."""
+"""Build SS IPTV XMLTV from a manually uploaded gzip file.
+
+The input contains only public programme information. No stream URLs,
+playlist access keys, or credentials are used or published.
+"""
 from __future__ import annotations
 
 import base64
 import gzip
-import shutil
 import zlib
-from datetime import datetime, timedelta, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
 from lxml import etree
 
 ROOT = Path(__file__).resolve().parent
-XMLTV_URLS = (
-    "https://bobor.pm/epg/epg-lite.xml",
-    "https://bobor.pm/epg/epg-lite.xml.gz",
-    "https://bobor.pm/epg/epg.xml",
-    "https://bobor.pm/epg/epg.xml.gz",
-)
-MAX_XML_BYTES = 4_500_000
-MOSCOW = timezone(timedelta(hours=3))
+INPUT = ROOT / "input" / "epg-lite.xml.gz"
+IDS = ROOT / "selected_ids.zlib64"
 OUTPUT = ROOT / "site" / "epg.xml"
+MAX_BYTES = 4_500_000
+LOCAL_TZ = timezone(timedelta(hours=3))
 
 
 def selected_channels() -> set[str]:
-    packed = (ROOT / "selected_ids.zlib64").read_text(encoding="ascii").strip()
-    ids = set(zlib.decompress(base64.b64decode(packed, validate=True)).decode("utf-8").splitlines())
+    packed = IDS.read_text(encoding="ascii").strip()
+    decoded = zlib.decompress(base64.b64decode(packed, validate=True))
+    ids = set(decoded.decode("utf-8").splitlines())
     if len(ids) != 766:
-        raise ValueError(f"Expected 766 unique EPG channel IDs, got {len(ids)}")
+        raise ValueError(f"Unexpected selection of EPG channels: {len(ids)}")
     return ids
 
 
-def build_xml(xml_path: Path, wanted: set[str], now: datetime, lookahead_hours: int):
-    start_of_day = datetime.combine(now.date(), time.min, MOSCOW)
-    cutoff = now + timedelta(hours=lookahead_hours)
-    guide = etree.Element("tv", {"generator-info-name": "SS IPTV selected EPG"})
-    n_channels = 0
-    n_programmes = 0
-    for _, element in etree.iterparse(
-        str(xml_path), events=("end",), tag=("channel", "programme"),
-        no_network=True, resolve_entities=False, load_dtd=False,
-    ):
-        name = element.get("id" if element.tag == "channel" else "channel")
-        use = name in wanted
-        if use and element.tag == "programme":
-            try:
-                begin = datetime.strptime(element.get("start"), "%Y%m%d%H%M%S %z")
-                end = datetime.strptime(element.get("stop"), "%Y%m%d%H%M%S %z")
-                use = begin < cutoff and end > start_of_day
-            except (TypeError, ValueError):
-                use = False
-        if use:
-            guide.append(etree.fromstring(etree.tostring(element)))
-            if element.tag == "channel":
-                n_channels += 1
+def parse_input(wanted, beginning, latest):
+    channels = {}
+    programmes = []
+    with gzip.open(INPUT, "rb") as xml:
+        for _, elem in etree.iterparse(
+            xml, events=("end",), tag=("channel", "programme"),
+            no_network=True, resolve_entities=False, load_dtd=False
+        ):
+            if elem.tag == "channel":
+                id_ = elem.get("id")
+                if id_ in wanted:
+                    channels[id_] = etree.tostring(elem, encoding="utf-8")
             else:
-                n_programmes += 1
-        element.clear()
-        while element.getprevious() is not None:
-            del element.getparent()[0]
-    return etree.tostring(guide, xml_declaration=True, encoding="UTF-8"), n_channels, n_programmes
-
-
-def main() -> None:
-    channel_ids = selected_channels()
-    temp = ROOT / "_full_xmltv_download.tmp"
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        downloaded = False
-        for url in XMLTV_URLS:
-            request = Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
-                "Accept": "application/xml,text/xml,*/*",
-            })
-            try:
-                print(f"Trying {url}", flush=True)
-                with urlopen(request, timeout=25) as resp, temp.open("wb") as target:
-                    if url.endswith(".gz") or resp.headers.get("Content-Type", "").startswith("application/gzip"):
-                        with gzip.GzipFile(fileobj=resp) as raw_xml:
-                            shutil.copyfileobj(raw_xml, target)
+                id_ = elem.get("channel")
+                if id_ in wanted:
+                    try:
+                        start = datetime.strptime(elem.get("start"), "%Y%m%d%H%M%S %z")
+                        stop = datetime.strptime(elem.get("stop"), "%Y%m%d%H%M%S %z")
+                    except (TypeError, ValueError):
+                        pass
                     else:
-                        shutil.copyfileobj(resp, target)
-                if temp.stat().st_size < 100_000:
-                    raise ValueError("Downloaded XMLTV seems incomplete")
-                downloaded = True
-                print(f"Downloaded {temp.stat().st_size} bytes", flush=True)
-                break
-            except (HTTPError, URLError, OSError, ValueError, EOFError) as error:
-                print(f"EPG source failed: {url}: {type(error).__name__}: {error}", flush=True)
-        if not downloaded:
-            # Temporary static test for 18 October only. Never silently serve stale EPG later.
-            snapshot = OUTPUT.read_bytes() if OUTPUT.exists() else b""
-            today = datetime.now(MOSCOW).strftime("%Y%m%d")
-            if today == "20261018" and len(snapshot) > 10_000 and b'<tv ' in snapshot and b'Xbcu-action' in snapshot:
-                print("::warning::Provider returned HTTP 403. Publishing approved 18 October BCU test snapshot only.", flush=True)
-                (OUTPUT.parent / "index.html").write_text(
-                    '<!doctype html><html><meta charset="utf-8"><a href="epg.xml">BCU EPG test</a></html>',
-                    encoding="utf-8",
-                )
-                return
-            raise RuntimeError("Provider blocks GitHub Actions, and no valid test-day snapshot is available")
-        now = datetime.now(MOSCOW)
-        for hours in (48, 36, 24, 18, 12, 6):
-            xml, channels, programmes = build_xml(temp, channel_ids, now, hours)
-            if len(xml) <= MAX_XML_BYTES and channels >= 50 and programmes >= 100:
-                OUTPUT.write_bytes(xml)
-                (OUTPUT.parent / "index.html").write_text(
-                    '<!doctype html><html><head><meta charset="utf-8"><title>SS IPTV EPG</title></head>'
-                    '<body><a href="epg.xml">EPG XMLTV</a></body></html>\n',
-                    encoding="utf-8",
-                )
-                print(f"OK: {len(xml)} bytes, {channels} channels, {programmes} programmes, {hours}h lookahead")
-                return
-        raise ValueError("No usable schedule could be kept below 4.5 MB")
-    finally:
-        temp.unlink(missing_ok=True)
+                        if start < latest and stop > beginning:
+                            programmes.append(
+                                (start, id_, etree.tostring(elem, encoding="utf-8"))
+                            )
+            elem.clear()
+            while elem.getprevious() is not None:
+                del elem.getparent()[0]
+    return channels, programmes
+
+
+def choose_xml(channels, programmes, day_begin):
+    header = (
+        b'<?xml version="1.0" encoding="UTF-8"?>\n'
+        b'<tv generator-info-name="SS IPTV EPG (manual upload)">'
+    )
+    for horizon_hours in (72, 60, 48, 42, 36, 30, 27, 24, 18, 12):
+        cutoff = day_begin + timedelta(hours=horizon_hours)
+        eligible = [(channel, raw) for start, channel, raw in programmes if start < cutoff]
+        ids_in_guide = {channel for channel, _ in eligible}
+        body = b"".join(channels[id_] for id_ in sorted(ids_in_guide) if id_ in channels)
+        programs = b"".join(raw for _, raw in eligible)
+        xml = header + body + programs + b"</tv>\n"
+        if len(xml) <= MAX_BYTES and len(eligible) >= 100 and len(ids_in_guide) >= 25:
+            return xml, len(eligible), len(ids_in_guide), horizon_hours
+    raise RuntimeError("No suitable XMLTV data fitting the 4.5MB limit")
+
+
+def main():
+    if not INPUT.exists():
+        raise FileNotFoundError(
+            "Upload input/epg-lite.xml.gz from your browser; no direct provider requests"
+        )
+    wanted = selected_channels()
+    now = datetime.now(LOCAL_TZ)
+    day_begin = datetime.combine(now.date(), time.min, LOCAL_TZ)
+    channels, programmes = parse_input(wanted, day_begin, day_begin + timedelta(days=3))
+    if not any(start.astimezone(LOCAL_TZ).date() == day_begin.date() for start, _, _ in programmes):
+        raise RuntimeError(f"Source XMLTV has no programmes for {now.date()} (outdated?)")
+    xml, count, n_channels, hours = choose_xml(channels, programmes, day_begin)
+    etree.fromstring(xml, parser=etree.XMLParser(resolve_entities=False, no_network=True))
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.write_bytes(xml)
+    (OUTPUT.parent / "index.html").write_text(
+        '<!doctype html><html lang="ru"><meta charset="utf-8">'
+        '<title>SS IPTV EPG</title><body><a href="epg.xml">EPG XMLTV</a></body></html>\n',
+        encoding="utf-8",
+    )
+    print(
+        f"Published EPG: {len(xml)} bytes, {n_channels} channels, "
+        f"{count} programmes, horizon {hours} hours from today's midnight"
+    )
 
 
 if __name__ == "__main__":
