@@ -6,9 +6,8 @@ on:
   push:
     paths:
       - '.github/workflows/publish-epg.yml'
-  schedule:
-    # 05:15 and 17:15, UTC+03 (Moscow / Turkey)
-    - cron: "15 2,14 * * *"
+  # Recurring schedule temporarily disabled: upstream blocks GitHub runners (HTTP 403).
+  # Re-enable after replacing the update method.
 
 permissions:
   contents: read
